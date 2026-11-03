@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: ULU website
+    url: https://ulu.software
+    about: About ULU, downloads and news.
+  - name: User guide
+    url: https://github.com/endorphin-ai/ulu-releases/tree/main/docs
+    about: How to use ULU, and answers to common questions.

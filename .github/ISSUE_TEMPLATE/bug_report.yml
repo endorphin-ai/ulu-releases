@@ -1,0 +1,84 @@
+name: Bug report
+description: Something in ULU does not work as it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for telling us. Short and plain is fine.
+
+        **Issues are public.** Never paste keys, tokens, passwords, e-mail addresses or private code here. Remove them from logs and screenshots first.
+
+        Tip: newer versions of ULU have a bug button in the top bar. Claude can find the cause and prepare this report for you. See [Reporting a bug](https://github.com/endorphin-ai/ulu-releases/blob/main/docs/reporting-bugs.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see? Paste the error text if there was one.
+      placeholder: After I pressed Start, the Hive showed "Reading the hive…" and nothing more.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: The bees start working and the run shows in the Hive.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: What you did, one step at a time, so we can do it again.
+      placeholder: |
+        1. Open the project
+        2. Open Work → Hive
+        3. Write a task and press Start
+    validations:
+      required: false
+  - type: input
+    id: ulu-version
+    attributes:
+      label: ULU version
+      description: At the bottom left of the ULU window.
+      placeholder: v0.4.2
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: Apple menu → About This Mac. Say if it is Apple Silicon or Intel.
+      placeholder: macOS 15.1, Apple Silicon
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: Run `claude --version` in a terminal.
+      placeholder: 2.1.0
+    validations:
+      required: false
+  - type: textarea
+    id: ulu-report
+    attributes:
+      label: The report ULU prepared
+      description: If you used the bug button in ULU, paste its report here. Read it first and remove anything private.
+    validations:
+      required: false
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, or anything that may help. Hide private things first.
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before you send
+      options:
+        - label: I did not paste keys, tokens, passwords or private code.
+          required: true
