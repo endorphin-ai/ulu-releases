@@ -1,0 +1,40 @@
+name: Feature request
+description: An idea or a wish for ULU.
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the idea. Tell us what you want to do, and why. You do not need to know how it should be built.
+
+        Issues are public: do not paste keys, tokens or private code.
+  - type: textarea
+    id: want
+    attributes:
+      label: What you want to do
+      placeholder: I want to see the cost of each bee for the whole week.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters to you
+      placeholder: I share one Claude plan with my team and want to know which tasks cost the most.
+    validations:
+      required: false
+  - type: textarea
+    id: now
+    attributes:
+      label: How you do it today
+      description: A way around it, if you have one.
+    validations:
+      required: false
+  - type: input
+    id: ulu-version
+    attributes:
+      label: ULU version
+      description: At the bottom left of the ULU window.
+      placeholder: v0.4.2
+    validations:
+      required: false
