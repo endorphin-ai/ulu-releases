@@ -343,7 +343,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const now = await $.clock.now()
     const id = e.agentId
-    await change($, r => (id ? endBee(r, id, e.reason, now) : endMain(r, now)))
+    await change($, r => (id ? endBee(r, id, e.reason, now, e.answer) : endMain(r, now)))
     await ledger($, true)
     return next(e)
   })
@@ -525,6 +525,22 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    // What the bee says it did and checked (rule R21): green when all of it,
+    // amber when part, red when the tests failed or it gave no count.
+    const selfCheckLine = (b: Run['bees'][number]) => {
+      const c = b.check
+      if (!c) return <Text color="#e5a50a">⚠ no SELF-CHECK in its report</Text>
+      const full = c.applied === c.total
+      const testsOk = !c.hasTests || c.passed === c.run
+      const color = full && testsOk ? 'green' : c.applied === 0 || !testsOk ? 'red' : '#e5a50a'
+      return (
+        <Text wrap="truncate">
+          <Text color={color} bold>{full && testsOk ? '✓' : '◐'} {c.applied}/{c.total} applied</Text>
+          {c.hasTests && <Text color={testsOk ? 'green' : 'red'}> · tests {c.passed}/{c.run}</Text>}
+        </Text>
+      )
+    }
+
     const beeRow = (b: Run['bees'][number]) => {
       const isRunning = b.status === 'running'
       const done = b.steps.filter(s => s.status === 'completed').length
@@ -559,6 +575,7 @@ export const register: Register = (on, options) => {
               </Text>
             </Box>
             {isRunning && total > 0 && <Text dimColor wrap="truncate">{b.doing}</Text>}
+            {!isRunning && b.status !== 'stopped' && selfCheckLine(b)}
             <Text>
               <Text dimColor>{line.lead}</Text>
               <Text color={color}>{line.full}</Text>

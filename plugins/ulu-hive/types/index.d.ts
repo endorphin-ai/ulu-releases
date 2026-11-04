@@ -9,6 +9,9 @@ export type Step = {
   blockedBy: string[]
 }
 
+// A bee's own count of what it did and checked: `SELF-CHECK: 7/9 applied — tests 41/42 passed`.
+export type SelfCheck = { applied: number; total: number; passed: number; run: number; hasTests: boolean }
+
 export type BeeStatus = 'running' | 'done' | 'failed' | 'stopped'
 
 export type Bee = {
@@ -29,6 +32,7 @@ export type Bee = {
   ctxTokens: number // what its last request held
   doing: string // what it does now, made safe to show
   steps: Step[]
+  check?: SelfCheck // the SELF-CHECK line of its last report (rule R21)
 }
 
 export type Run = {

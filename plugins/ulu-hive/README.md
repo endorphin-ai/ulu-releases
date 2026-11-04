@@ -3,7 +3,7 @@
 Watch El Capitan's bees work, right in Claude Code, as in the [ULU](https://ulu.software) app: every bee a 🐝 that wiggles while it works, its role on a chip in the role's color, and what it is doing now.
 
 - **Tabs** at the top of the pane: Hive, Board and Stats. Click one, or press 1, 2 or 3.
-- **Hive** (`/hive`): the run's cost, tokens and time; each bee with its role, model and effort, its steps (3/5 · Hero copy), context, tokens, cost and time, and a progress bar in its role's color. Finished bees fold away; planned steps show what they wait for.
+- **Hive** (`/hive`): the run's cost, tokens and time; each bee with its role, model and effort, its steps (3/5 · Hero copy), context, tokens, cost and time, and a progress bar in its role's color. Finished bees show what they say they applied and checked, from the `SELF-CHECK: 7/9 applied — tests 41/42 passed` line of their report (green when all of it, amber when part, red when tests failed, ⚠ when there is no count), and fold away; planned steps show what they wait for.
 - **Board**: the project's work items from dev-docs/ (PRDs, TRDs, stories, test cases, bugs) by column, with decisions and risks below, as on ULU's board. It reads them again when the team writes one.
 - **Stats**: cost, tokens and time by role, and El Capitan's context.
 - **The chain** above the prompt: El Capitan's plan, the step at work lit.

@@ -405,3 +405,17 @@ test('the status line leaves a run that ended long ago', async ($, on) => {
   await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true }) // a reload looks again
   expect(statuses.at(-1)).toBeUndefined()
 })
+
+import { selfCheckOf } from '../hooks/core/hive'
+
+test('a report\'s SELF-CHECK line is read (rule R21)', async () => {
+  expect(selfCheckOf('Done.\n\nSELF-CHECK: 7/9 applied — tests 41/42 passed\n✗ AC-3 blocked')).toEqual({ applied: 7, total: 9, passed: 41, run: 42, hasTests: true })
+  expect(selfCheckOf('**SELF-CHECK:** 3/3 applied')).toEqual({ applied: 3, total: 3, passed: 0, run: 0, hasTests: false })
+  expect(selfCheckOf('SELF-CHECK: 1/2 applied\n...\nSELF-CHECK: 2/2 applied — tests 5/5 passed')!.applied).toBe(2) // the last one counts
+  expect(selfCheckOf('all done, tests pass')).toBeNull()
+  expect(selfCheckOf('SELF-CHECK: 9/7 applied')).toBeNull() // not a count
+  let r = startRun(null, 'x', CWD, 0)
+  r = addBee(r, { id: 'q', role: 'qa', title: 'Test it', model: 'm' }, 0)
+  r = endBee(r, 'q', 'answer', 10, 'SELF-CHECK: 5/6 applied — tests 30/30 passed')
+  expect(r.bees[0]!.check).toEqual({ applied: 5, total: 6, passed: 30, run: 30, hasTests: true })
+})

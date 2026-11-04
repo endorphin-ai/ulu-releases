@@ -23,6 +23,7 @@ function bee(
     startedAt: now - startedAgo, endedAt: status === 'running' ? 0 : now - startedAgo / 3,
     tokens: tokens * 0.2, cacheRead: tokens * 0.8, round: 1, nth: 1, costUsd: costOf(model, u), ctxTokens: tokens * 0.6,
     doing: status === 'running' ? 'Starting' : '', steps: s,
+    ...(status === 'done' ? { check: { applied: s.length, total: s.length + (id === 'd5' ? 1 : 0), passed: 12, run: 12, hasTests: true } } : {}),
   }
 }
 
@@ -87,7 +88,8 @@ export function demoTick(run: Run, tick: number, now: number): Run {
         grown.steps = b.steps.map((s, i) =>
           i === at ? { ...s, status: 'completed' } : i === at + 1 ? { ...s, status: 'in_progress' } : s,
         )
-        if (at === b.steps.length - 1) return { ...grown, status: 'done' as const, endedAt: now, doing: '' }
+        if (at === b.steps.length - 1)
+          return { ...grown, status: 'done' as const, endedAt: now, doing: '', check: { applied: b.steps.length, total: b.steps.length, passed: 24, run: 24, hasTests: true } }
       }
     }
     if (!b.steps.length && tick % 40 === 0) return { ...grown, status: 'done' as const, endedAt: now, doing: '' }

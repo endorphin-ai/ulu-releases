@@ -4,7 +4,7 @@
 
 import { redact, shortPath } from './redact'
 
-import type { Bee, BeeStatus, Run, Step, StepStatus, Usage } from '../../types'
+import type { Bee, BeeStatus, Run, SelfCheck, Step, StepStatus, Usage } from '../../types'
 
 export type { Bee, BeeStatus, Run, Step, StepStatus, Usage }
 
@@ -136,12 +136,24 @@ export function addUsage(
   }))
 }
 
-export function endBee(run: Run, agentId: string, reason: string, now: number): Run {
+export function endBee(run: Run, agentId: string, reason: string, now: number, answer = ''): Run {
   const status: BeeStatus = reason === 'aborted' ? 'stopped' : reason === 'answer' ? 'done' : 'failed'
+  const check = selfCheckOf(answer)
   const next = withBee(run, agentId, b =>
-    b.status === 'running' ? { ...b, status, endedAt: now, doing: '' } : b,
+    b.status === 'running' ? { ...b, status, endedAt: now, doing: '', ...(check ? { check } : {}) } : b,
   )
   return settle(next, now)
+}
+
+// The last SELF-CHECK line of a report (rule R21), or null.
+export function selfCheckOf(text: string): SelfCheck | null {
+  const all = [...text.slice(-20_000).matchAll(/SELF-CHECK:?\s*\**\s*(\d+)\s*\/\s*(\d+)[^\n]*/gi)]
+  const m = all.at(-1)
+  if (!m) return null
+  const applied = Number(m[1]), total = Number(m[2])
+  if (!(total > 0) || applied > total) return null
+  const t = /tests?\D{0,12}(\d+)\s*\/\s*(\d+)/i.exec(m[0])
+  return { applied, total, passed: t ? Number(t[1]) : 0, run: t ? Number(t[2]) : 0, hasTests: !!t }
 }
 
 // Something was heard from the run: a bee or El Capitan did something.

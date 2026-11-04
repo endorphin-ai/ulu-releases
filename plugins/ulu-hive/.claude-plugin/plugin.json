@@ -1,6 +1,6 @@
 {
   "name": "ulu-hive",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "ULU Hive: watch El Capitan's bees work in Claude Code, with their steps, tokens, cost and time, and the plan as a chain",
   "author": { "name": "ULU", "url": "https://ulu.software" },
   "homepage": "https://ulu.software",
