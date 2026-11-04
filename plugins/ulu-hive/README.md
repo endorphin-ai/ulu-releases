@@ -19,6 +19,10 @@ It only watches. It sends nothing anywhere, makes no model call (it costs nothin
 
 Cost at the top is the session's own figure; a bee's cost is an estimate from its tokens (≈).
 
+## Where it shows
+
+In Claude Code's **fullscreen view** the hive docks beside the talk, and its tabs take clicks. On the **main screen** (inside tmux, or with `CLAUDE_CODE_NO_FLICKER=0`) a pane cannot dock: `/hive` opens it above the prompt with the keyboard, so **1**, **2** and **3** switch tabs and **Esc** goes back to the prompt; it does not open by itself there, a note says `/hive` shows it. To get the fullscreen view inside tmux, start Claude Code with `CLAUDE_CODE_NO_FLICKER=1 claude`.
+
 ## Settings
 
 - `autoOpen` (on): open the pane when you type `/el-capitan`, and when the first bee of a session starts.

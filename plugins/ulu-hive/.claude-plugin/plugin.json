@@ -1,6 +1,6 @@
 {
   "name": "ulu-hive",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ULU Hive: watch El Capitan's bees work in Claude Code, with their steps, tokens, cost and time, and the plan as a chain",
   "author": { "name": "ULU", "url": "https://ulu.software" },
   "homepage": "https://ulu.software",
@@ -10,7 +10,7 @@
     "autoOpen": {
       "type": "boolean",
       "title": "Open the hive when a bee starts",
-      "description": "Open the ULU Hive pane by itself when /el-capitan starts, and when the first bee of a session starts",
+      "description": "Open the ULU Hive pane beside the talk when /el-capitan or the first bee starts (in the fullscreen view; elsewhere a note says /hive shows it)",
       "default": true
     }
   }

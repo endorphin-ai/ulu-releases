@@ -283,3 +283,13 @@ test('/hive demo fills the pane, and demo off clears it', async ($, on) => {
   expect(await ui2.find({ type: 'Text', text: /No run yet/ })).toBeTruthy()
   await ui2.unmount()
 })
+
+test('on the main screen the tabs say their keys', async ($, on) => {
+  on('clock.now', () => ({ value: 0 }))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal', viewport: { columns: 100, rows: 30, isFullscreen: false } })
+  expect(await ui.find({ type: 'Text', text: /keys 1 2 3/ })).toBeTruthy()
+  await ui.unmount()
+  const full = await $.ui.mount({ ...PANE, surface: 'terminal', viewport: { columns: 200, rows: 50, isFullscreen: true } })
+  expect(await full.find({ type: 'Text', text: /keys 1 2 3/ })).toBeFalsy()
+  await full.unmount()
+})

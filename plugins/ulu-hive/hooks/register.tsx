@@ -51,6 +51,26 @@ let cwd = ''
 let timer: { cancel: () => void } | null = null
 let opened = false
 let demoTicks = 0
+// Whether the terminal draws Claude Code's fullscreen layout: only there a
+// pane docks beside the talk and takes clicks. Learnt from any drawing.
+let isFullscreen: boolean | undefined
+let toldWhere = false
+
+// The pane: docked beside the talk (fullscreen), else a short block above the
+// prompt. Opened by the person it takes the keys, so 1, 2, 3 switch tabs.
+async function openPane($: EngineInterface, asked: boolean) {
+  await $.ui.open({ id: PANE, title: TITLE, columns: 58, rows: 18, ...(asked ? { focus: true as const } : {}) })
+}
+
+// Opened unasked only where it sits beside the talk; elsewhere it would cover
+// the screen, so a toast says where it is, once.
+async function openUnasked($: EngineInterface) {
+  if (isFullscreen) return openPane($, false)
+  if (!toldWhere) {
+    toldWhere = true
+    $.ui.toast('🐝 The hive is at work: /hive shows it')
+  }
+}
 
 // While something works, a tick every half second moves the bees and the
 // clock; it stops when the run ends.
@@ -172,18 +192,22 @@ export const register: Register = (on, options) => {
     }
     if (args === 'demo') {
       await startDemo($)
-      await $.ui.open({ id: PANE, title: TITLE })
+      await openPane($, true)
       return { text: 'ULU Hive: a made-up run is playing. Switch tabs with 1, 2, 3; /hive demo off clears it.' }
     }
-    await $.ui.open({ id: PANE, title: TITLE })
-    return { text: 'ULU Hive is open.' }
+    await openPane($, true)
+    return {
+      text: e.presentation.isFullscreen
+        ? 'ULU Hive is open: click a tab, or press 1, 2, 3.'
+        : "ULU Hive is open: press 1, 2, 3 to switch tabs, Esc to go back to the prompt. In Claude Code's fullscreen view it docks beside the talk and takes clicks.",
+    }
   })
 
   on('prompt.submit', async ($, e, next) => {
     const now = await $.clock.now()
     const usd = (await $.session.usage()).cost?.usd
     // /el-capitan starts the team: the hive opens with it.
-    if (autoOpen && /^\/el-capitan\b/i.test(e.text.trim())) void $.ui.open({ id: PANE, title: TITLE })
+    if (autoOpen && /^\/el-capitan\b/i.test(e.text.trim())) void openUnasked($)
     // The demo plays on while the person types; a real bee ends it.
     await update($, run, r => (r?.isDemo ? r : setLedger(startRun(r, e.text, cwd, now), usd)))
     await pulse($)
@@ -203,7 +227,7 @@ export const register: Register = (on, options) => {
       await change($, r => addBee(r, { id, role: e.subagentType, title: e.description, model: started.model }, now))
       if (autoOpen && !opened) {
         opened = true
-        void $.ui.open({ id: PANE, title: TITLE })
+        void openUnasked($)
       }
     }
     return started
@@ -261,6 +285,7 @@ export const register: Register = (on, options) => {
     const width = Math.max(30, e.props.bodyColumns ?? 50)
     const now = await $.clock.now()
     const view = await read($, viewAtom)
+    if (e.viewport?.isFullscreen !== undefined) isFullscreen = e.viewport.isFullscreen
 
     // The tabs: a click (or 1, 2, 3 while the pane has the keys) switches.
     const tab = (id: View, label: string, key: string) => (
@@ -278,6 +303,7 @@ export const register: Register = (on, options) => {
           {tab('hive', '🐝 Hive', '1')}
           {tab('board', '▦ Board', '2')}
           {tab('stats', '▤ Stats', '3')}
+          {e.viewport?.isFullscreen === false && <Text dimColor>keys 1 2 3</Text>}
         </Box>
         {body}
       </Box>
@@ -527,6 +553,7 @@ export const register: Register = (on, options) => {
 
   // The chain above the prompt: El Capitan's plan, the step at work lit.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.viewport?.isFullscreen !== undefined) isFullscreen = e.viewport.isFullscreen
     const r = await read($, run)
     if (e.props.hasSurvey || !r || r.plan.length === 0 || !isRunning(r) || (await read($, isBandHidden))) {
       return next(e)
