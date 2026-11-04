@@ -21,7 +21,7 @@ function bee(
   return {
     id, role, title, bee: beeFor(`${role} ${title}`), model, effort, status,
     startedAt: now - startedAgo, endedAt: status === 'running' ? 0 : now - startedAgo / 3,
-    tokens, costUsd: costOf(model, u), ctxTokens: tokens * 0.6,
+    tokens: tokens * 0.2, cacheRead: tokens * 0.8, round: 1, nth: 1, costUsd: costOf(model, u), ctxTokens: tokens * 0.6,
     doing: status === 'running' ? 'Starting' : '', steps: s,
   }
 }
@@ -40,6 +40,8 @@ export function demoRun(now: number): Run {
     endedAt: 0,
     isMainBusy: true,
     mainTokens: 61_000,
+    mainCacheRead: 900_000,
+    window: 1_000_000,
     mainCostUsd: 0.09,
     doing: 'Sending a bee: Build the landing page',
     plan,
@@ -58,6 +60,8 @@ export function demoRun(now: number): Run {
         steps(4, ['Find 10 launches', 'Compare pricing', 'Find the gaps', 'Write it up']), 44_000, 'done'),
       bee('d6', 'security-reviewer', 'Check the auth setup', 'claude-sonnet-5-5', 'high', 52_000, now,
         steps(1, ['Read the auth code', 'Check the secrets']), 15_000, 'failed'),
+      { ...bee('d7', 'architect', 'Design the sign-up API again', 'claude-opus-5-5', 'high', 9_000, now,
+        steps(0, ['Read the review', 'Change the design']), 21_000), round: 2 },
     ],
   }
 }
@@ -75,7 +79,7 @@ export function demoTick(run: Run, tick: number, now: number): Run {
   let bees = run.bees.map(b => {
     if (b.status !== 'running') return b
     const lines = DOING[b.bee] ?? DOING.dev!
-    const grown = { ...b, tokens: b.tokens + 140, costUsd: b.costUsd + costOf(b.model, { output_tokens: 20, cache_read_input_tokens: 120 }), ctxTokens: b.ctxTokens + 90 }
+    const grown = { ...b, tokens: b.tokens + 30, cacheRead: b.cacheRead + 110, costUsd: b.costUsd + costOf(b.model, { output_tokens: 20, cache_read_input_tokens: 120 }), ctxTokens: b.ctxTokens + 90 }
     if (tick % 4 === 0) grown.doing = lines[(tick / 4 + b.id.length) % lines.length]!
     if (tick % 9 === 0 && b.steps.length) {
       const at = b.steps.findIndex(s => s.status === 'in_progress')

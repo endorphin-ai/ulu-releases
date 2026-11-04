@@ -5,6 +5,7 @@ import {
   addBee,
   addUsage,
   beeFor,
+  contextWindow,
   createdStep,
   doingOf,
   endBee,
@@ -48,7 +49,8 @@ test('a run follows its bees', async () => {
   expect(finished.map(b => b.status)).toEqual(['done'])
   expect(running[0]!.bee).toBe('frontend')
   expect(running[0]!.effort).toBe('low')
-  expect(running[0]!.tokens).toBe(33000)
+  expect(running[0]!.tokens).toBe(3000) // new tokens only
+  expect(running[0]!.cacheRead).toBe(30000)
   expect(running[0]!.ctxTokens).toBe(31000)
   expect(running[0]!.steps.map(s => s.status)).toEqual(['completed', 'in_progress', 'pending'])
   expect(isRunning(r)).toBe(true)
@@ -59,8 +61,16 @@ test('a run follows its bees', async () => {
   r2 = endBee(r2, 'a1', 'answer', 40000)
   expect(r2.endedAt).toBe(40000)
   expect(isRunning(r2)).toBe(false)
-  // A bee woken again works again.
-  expect(isRunning(wakeBee(r2, 'a1'))).toBe(true)
+  // A bee woken again works again, in its next round.
+  const again = wakeBee(r2, 'a1')
+  expect(isRunning(again)).toBe(true)
+  expect(again.bees.find(b => b.id === 'a1')!.round).toBe(2)
+  // A second bee of a role is numbered.
+  const two = addBee(r2, { id: 'a3', role: 'frontend-dev', title: 'Fix the footer', model: 'x' }, 50000)
+  expect(two.bees.find(b => b.id === 'a3')!.nth).toBe(2)
+  // Context is held against the session's window; past 200k it is a 1M one.
+  expect(contextWindow('claude-opus-5-5', 1_000_000, 50_000)).toBe(1_000_000)
+  expect(contextWindow('claude-opus-5-5', 0, 300_000)).toBe(1_000_000)
 })
 
 test('a new prompt keeps a run whose bees still work', async () => {
@@ -123,7 +133,7 @@ test('the cost is the ledger once known, else the estimate', async () => {
   r = addUsage(r, 'a', { output_tokens: 10000 }, 'claude-opus-5-5', '')
   expect(totals(r).isExact).toBe(false) // the ledger has not moved yet
   r = setLedger(r, 10.3)
-  expect(totals(r)).toEqual({ tokens: 10000, cost: 0.3000000000000007, isExact: true })
+  expect(totals(r)).toEqual({ tokens: 10000, cacheRead: 0, cost: 0.3000000000000007, isExact: true })
 })
 
 test('chips get words that read on their color', async () => {
@@ -249,7 +259,7 @@ import { demoBoard, demoRun, demoTick } from '../hooks/core/demo'
 
 test('the demo plays a whole run', async () => {
   let r = demoRun(100_000)
-  expect(sections(r).running.length).toBe(3)
+  expect(sections(r).running.length).toBe(4)
   for (let t = 1; t < 600 && isRunning(r); t++) r = demoTick(r, t, 100_000 + t * 500)
   expect(isRunning(r)).toBe(false)
   expect(r.plan.every(s => s.status === 'completed')).toBe(true)
@@ -271,7 +281,8 @@ test('/hive demo fills the pane, and demo off clears it', async ($, on) => {
   await $.command.run({ command: 'hive', args: 'demo', ...TYPED })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Launch kit/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /Running · 3/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Running · 4/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /round 2/ })).toBeTruthy()
   await ui.press({ key: 'tab-board' })
   expect(await ui.find({ type: 'Text', text: /Sign in with GitHub/ })).toBeTruthy()
   await ui.press({ key: 'tab-stats' })

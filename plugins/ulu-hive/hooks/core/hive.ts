@@ -14,6 +14,8 @@ export const emptyRun = (title: string, now: number): Run => ({
   endedAt: 0,
   isMainBusy: true,
   mainTokens: 0,
+  mainCacheRead: 0,
+  window: 0,
   mainCostUsd: 0,
   doing: '',
   plan: [],
@@ -23,7 +25,8 @@ export const emptyRun = (title: string, now: number): Run => ({
 })
 
 // The session's ledger says what everything has cost: the run's part of it.
-export function setLedger(run: Run, sessionUsd: number | undefined): Run {
+export function setLedger(run: Run, sessionUsd: number | undefined, window?: number): Run {
+  if (window) run = { ...run, window }
   if (sessionUsd === undefined) return run
   if (run.costBase < 0) return { ...run, costBase: sessionUsd, exactCost: 0 }
   return { ...run, exactCost: Math.max(0, sessionUsd - run.costBase) }
@@ -55,7 +58,9 @@ export function endMain(run: Run, now: number): Run {
 
 // A bee that was woken again (SendMessage) works again.
 export function wakeBee(run: Run, agentId: string): Run {
-  const next = withBee(run, agentId, b => (b.status === 'running' ? b : { ...b, status: 'running', endedAt: 0, doing: 'Working' }))
+  const next = withBee(run, agentId, b =>
+    b.status === 'running' ? b : { ...b, status: 'running', endedAt: 0, doing: 'Working', round: b.round + 1 },
+  )
   return next === run ? run : { ...next, endedAt: 0 }
 }
 
@@ -82,6 +87,9 @@ export function addBee(
     startedAt: now,
     endedAt: 0,
     tokens: 0,
+    cacheRead: 0,
+    round: 1,
+    nth: run.bees.filter(b => b.role === a.role).length + 1,
     costUsd: 0,
     ctxTokens: 0,
     doing: 'Starting',
@@ -90,11 +98,10 @@ export function addBee(
   return { ...run, endedAt: 0, bees: [...run.bees, bee] }
 }
 
+// New tokens: what the request added. The cache reads are the context sent
+// again, counted apart: summed over requests they come to millions.
 const tokensOf = (u: Usage) =>
-  (u.input_tokens ?? 0) +
-  (u.output_tokens ?? 0) +
-  (u.cache_creation_input_tokens ?? 0) +
-  (u.cache_read_input_tokens ?? 0)
+  (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
 
 // One model request ended: its tokens and cost go to the bee, or to El
 // Capitan when agentId is empty.
@@ -106,15 +113,17 @@ export function addUsage(
   effort: string,
 ): Run {
   const tokens = tokensOf(usage)
+  const cached = usage.cache_read_input_tokens ?? 0
   const cost = costOf(model, usage)
   if (!agentId) {
-    return { ...run, mainTokens: run.mainTokens + tokens, mainCostUsd: run.mainCostUsd + cost }
+    return { ...run, mainTokens: run.mainTokens + tokens, mainCacheRead: run.mainCacheRead + cached, mainCostUsd: run.mainCostUsd + cost }
   }
   return withBee(run, agentId, b => ({
     ...b,
     model: model || b.model,
     effort: effort || b.effort,
     tokens: b.tokens + tokens,
+    cacheRead: b.cacheRead + cached,
     costUsd: b.costUsd + cost,
     ctxTokens:
       (usage.input_tokens ?? 0) +
@@ -313,7 +322,12 @@ export function costOf(model: string, u: Usage): number {
   )
 }
 
-export const contextWindow = (model: string) => (/\[1m\]|-1m\b/i.test(model) ? 1_000_000 : 200_000)
+// The window a bee's context fills: the session's own when known, else 1M
+// for a model named so, else 200k; never less than what it already holds.
+export const contextWindow = (model: string, sessionWindow = 0, holds = 0) => {
+  const w = sessionWindow || (/\[1m\]|-1m\b/i.test(model) ? 1_000_000 : 200_000)
+  return holds > w ? 1_000_000 : w
+}
 
 export function shortModel(model: string): string {
   const m = /(opus|sonnet|haiku|fable)[-\s]?(\d+)(?:[-.](\d+))?/i.exec(model)
@@ -335,9 +349,10 @@ export function sections(run: Run) {
 
 export function totals(run: Run) {
   const tokens = run.mainTokens + run.bees.reduce((n, b) => n + b.tokens, 0)
+  const cacheRead = run.mainCacheRead + run.bees.reduce((n, b) => n + b.cacheRead, 0)
   const estimate = run.mainCostUsd + run.bees.reduce((n, b) => n + b.costUsd, 0)
   const isExact = run.exactCost >= 0 && run.exactCost >= estimate * 0.5
-  return { tokens, cost: isExact ? run.exactCost : estimate, isExact }
+  return { tokens, cacheRead, cost: isExact ? run.exactCost : estimate, isExact }
 }
 
 export const fmtTokens = (n: number) =>

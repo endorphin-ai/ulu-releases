@@ -246,8 +246,10 @@ export const register: Register = (on, options) => {
       if (chunk.kind === 'stop' && chunk.usage) {
         const usage = chunk.usage
         const effort = typeof e.effort === 'string' ? e.effort : ''
-        const usd = (await $.session.usage()).cost?.usd
-        await update($, run, r => (r ? setLedger(addUsage(r, e.agentId, usage, usage.model || e.model, effort), usd) : r))
+        const ledger = await $.session.usage()
+        await update($, run, r =>
+          r ? setLedger(addUsage(r, e.agentId, usage, usage.model || e.model, effort), ledger.cost?.usd, ledger.context.window) : r,
+        )
       }
       yield chunk
     }
@@ -390,10 +392,11 @@ export const register: Register = (on, options) => {
     if (view === 'stats') {
       if (!r || r.bees.length === 0) return frame(<Text dimColor>No bees yet. Stats show once El Capitan sends some.</Text>)
       const usage = await $.session.usage().catch(() => null)
-      const byRole = new Map<string, { bee: string; n: number; tokens: number; cost: number; ms: number; failed: number }>()
+      const byRole = new Map<string, { bee: string; n: number; tokens: number; cost: number; ms: number; failed: number; peak: number }>()
       for (const b of r.bees) {
-        const s = byRole.get(b.role) ?? { bee: b.bee, n: 0, tokens: 0, cost: 0, ms: 0, failed: 0 }
-        s.n++
+        const s = byRole.get(b.role) ?? { bee: b.bee, n: 0, tokens: 0, cost: 0, ms: 0, failed: 0, peak: 0 }
+        s.n += b.round
+        s.peak = Math.max(s.peak, b.ctxTokens)
         s.tokens += b.tokens
         s.cost += b.costUsd
         s.ms += (b.endedAt || now) - b.startedAt
@@ -402,17 +405,18 @@ export const register: Register = (on, options) => {
       }
       const rows = [...byRole.entries()].sort((a, b) => b[1].cost - a[1].cost)
       const most = Math.max(...rows.map(([, s]) => s.cost), 1e-9)
-      const { tokens, cost, isExact } = totals(r)
+      const { tokens, cacheRead, cost, isExact } = totals(r)
       return frame(
         <Box flexDirection="column">
           <Text>
             <Text bold>{r.bees.length} bees</Text>
-            <Text dimColor> · {fmtTokens(tokens)} tokens · {isExact ? '' : '≈'}{fmtCost(cost)}</Text>
+            <Text dimColor> · {fmtTokens(tokens)} new tokens · {isExact ? '' : '≈'}{fmtCost(cost)}</Text>
           </Text>
+          <Text dimColor>Context read again from the cache: {fmtTokens(cacheRead)} (cheap; it is what each request sends again)</Text>
           {usage?.context.percent !== undefined && (
             <Text dimColor>El Capitan's context: {Math.round(usage.context.percent ?? 0)}% of {fmtTokens(usage.context.window)}</Text>
           )}
-          <Text dimColor>El Capitan itself: {fmtTokens(r.mainTokens)} tokens · ≈{fmtCost(r.mainCostUsd)}</Text>
+          <Text dimColor>El Capitan itself: {fmtTokens(r.mainTokens)} new tokens · ≈{fmtCost(r.mainCostUsd)}</Text>
           {rows.map(([role, s]) => {
             const line = bar(textWidth, s.cost / most, 0)
             return (
@@ -421,9 +425,9 @@ export const register: Register = (on, options) => {
                 <Box flexDirection="column" flexGrow={1}>
                   <Text wrap="truncate">{chip(role, s.bee)}</Text>
                   <Text dimColor wrap="truncate">
-                    {s.n} {s.n === 1 ? 'run' : 'runs'}{s.failed ? ` · ${s.failed} failed` : ''} · {fmtTime(s.ms)}
+                    {s.n} {s.n === 1 ? 'round' : 'rounds'}{s.failed ? ` · ${s.failed} failed` : ''} · {fmtTime(s.ms)}
                   </Text>
-                  <Text dimColor>{fmtTokens(s.tokens)} tokens · ≈{fmtCost(s.cost)}</Text>
+                  <Text dimColor>{fmtTokens(s.tokens)} new tokens · ≈{fmtCost(s.cost)} · context up to {fmtTokens(s.peak)}</Text>
                   <Text>
                     <Text color={ROLE_COLOR[s.bee] ?? ROLE_COLOR.dev!}>{line.full}</Text>
                     <Text dimColor>{line.empty}</Text>
@@ -458,7 +462,7 @@ export const register: Register = (on, options) => {
       const total = b.steps.length
       const part = total ? done / total : isRunning ? -1 : 1
       const color = ROLE_COLOR[b.bee] ?? ROLE_COLOR.dev!
-      const ctx = b.ctxTokens ? `ctx ${Math.round((b.ctxTokens / contextWindow(b.model)) * 100)}% · ` : ''
+      const ctx = b.ctxTokens ? `ctx ${fmtTokens(b.ctxTokens)} (${Math.round((b.ctxTokens / contextWindow(b.model, r.window, b.ctxTokens)) * 100)}%) · ` : ''
       const time = fmtTime((b.endedAt || now) - b.startedAt)
       const progress = total ? `${done}/${total}${current ? ` · ${current.subject}` : ''}` : isRunning ? b.doing : 'done'
       const mark = { running: '●', done: '✓', failed: '✗', stopped: '■' }[b.status]
@@ -473,7 +477,8 @@ export const register: Register = (on, options) => {
               <Text color={markColor}>{mark}</Text>
             </Box>
             <Text wrap="truncate">
-              {chip(b.role, b.bee, !isRunning)}
+              {chip(b.nth > 1 ? `${b.role} #${b.nth}` : b.role, b.bee, !isRunning)}
+              {b.round > 1 && <Text color="#ffd34d" bold> round {b.round}</Text>}
               <Text dimColor> {[shortModel(b.model), b.effort].filter(Boolean).join(' · ')}</Text>
             </Text>
             <Box flexDirection="row" justifyContent="space-between">

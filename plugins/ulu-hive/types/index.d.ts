@@ -21,7 +21,10 @@ export type Bee = {
   status: BeeStatus
   startedAt: number
   endedAt: number
-  tokens: number // input + output + cache, all of its steps
+  tokens: number // new tokens: input, output and cache writes, all of its requests
+  cacheRead: number // context read again from the cache, all of its requests (cheap, and not new)
+  round: number // 1, then 2, 3 when El Capitan sends it a new task (SendMessage)
+  nth: number // 1 for the first bee of its role in the run, 2 for the second, ...
   costUsd: number // an estimate from the tokens
   ctxTokens: number // what its last request held
   doing: string // what it does now, made safe to show
@@ -33,7 +36,9 @@ export type Run = {
   startedAt: number
   endedAt: number // 0 while it goes on
   isMainBusy: boolean
-  mainTokens: number
+  mainTokens: number // El Capitan's new tokens
+  mainCacheRead: number
+  window: number // the session's context window, from the ledger; 0 unknown
   mainCostUsd: number
   doing: string // what El Capitan does now
   plan: Step[]
