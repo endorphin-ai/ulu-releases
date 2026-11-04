@@ -1,0 +1,12 @@
+{
+  "name": "ulu",
+  "owner": { "name": "ULU", "url": "https://ulu.software" },
+  "description": "Claude Code mods from ULU, the macOS app that runs Claude Code agent teams",
+  "plugins": [
+    {
+      "name": "ulu-hive",
+      "source": "./plugins/ulu-hive",
+      "description": "Watch El Capitan's bees work in Claude Code: each bee with its role, steps, tokens, cost and time; the plan as a chain; a board of the project's work items; stats by role. Try /hive demo."
+    }
+  ]
+}

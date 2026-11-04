@@ -25,6 +25,19 @@ This repository holds ULU's downloads, its update feed and its user guide. ULU's
 - **Phone, mockups and shipping.** See an Expo app in a phone, view mockups, and deploy to Render with a domain through Cloudflare.
 - **Stay on budget.** See what each project costs and set a budget. Get notifications on your Mac, or on your phone with ULU Remote.
 
+## ULU Hive for Claude Code (free)
+
+Watch El Capitan's bees work right in Claude Code, without the app: every bee 🐝 with its role, steps, tokens, cost and time, the plan as a chain above the prompt, the project's board and stats by role. It only watches: it sends nothing anywhere and makes no model call.
+
+In Claude Code:
+
+```
+/plugin marketplace add endorphin-ai/ulu-releases
+/plugin install ulu-hive@ulu
+```
+
+Then type `/hive`, or `/hive demo` to see it play a made-up run. It opens by itself when you type `/el-capitan`. More: [plugins/ulu-hive](plugins/ulu-hive/README.md).
+
 <table>
 <tr>
 <td width="50%"><img src="docs/images/team-question.png" alt="A question from the team, pinned on top of El Capitan"><br><sub>A question from the team, pinned on top.</sub></td>
