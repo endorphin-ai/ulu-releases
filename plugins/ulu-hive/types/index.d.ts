@@ -43,9 +43,10 @@ export type Run = {
   doing: string // what El Capitan does now
   plan: Step[]
   bees: Bee[]
-  costBase: number // the session's cost when the run began; -1 unknown
+  costBase: number // the session's total the run counts from (may be below 0 after /clear)
   exactCost: number // what the run has cost, from the session's ledger; -1 unknown
   isDemo?: boolean // made up by /hive demo
+  seenAt?: number // when the run was last heard from; absent in runs kept before it
 }
 
 export type Usage = {

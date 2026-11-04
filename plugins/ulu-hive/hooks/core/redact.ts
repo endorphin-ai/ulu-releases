@@ -10,6 +10,8 @@ const SHAPES: [RegExp, string][] = [
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, '[hidden]'],
   [/\b(?:rnd|npm|glpat|xox[bpas])[_-][A-Za-z0-9_-]{10,}/g, '[hidden]'],
   [/\bAIza[0-9A-Za-z_-]{30,}/g, '[hidden]'],
+  // A password in a URL: postgres://user:pass@host, https://x:token@github.com
+  [/\b([a-z][a-z0-9+.-]*:\/\/[^/\s:@]*):[^@\s/]+@/gi, '$1:[hidden]@'],
   [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[e-mail]'],
   // A value after a key named as a secret: GITHUB_TOKEN=…, --password x, "secret": "…"
   [

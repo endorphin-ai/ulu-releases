@@ -10,7 +10,7 @@ import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { Board, BoardItem, Run, View } from '../types'
 import { demoBoard, demoRun, demoTick } from './core/demo'
-import { COLUMN_NAMES, DOCS_DIRS, FOLDER_TYPES, TYPE_COLORS, TYPE_NAMES, boardColumns, parseItem } from './core/board'
+import { COLUMN_NAMES, DOCS_DIRS, FOLDER_TYPES, TYPE_COLORS, TYPE_NAMES, boardColumns, isDocsPath, parseItem } from './core/board'
 import { ROLE_COLOR, bar, darken, ink } from './core/draw'
 import {
   addBee,
@@ -20,6 +20,7 @@ import {
   contextWindow,
   createdStep,
   endBee,
+  endListed,
   endMain,
   fmtCost,
   fmtTime,
@@ -29,8 +30,10 @@ import {
   sections,
   setLedger,
   shortModel,
+  staleRun,
   startRun,
   totals,
+  touch,
   wakeBee,
 } from './core/hive'
 
@@ -47,10 +50,19 @@ const isDoneFolded = atom({ plugin: 'ulu-hive', key: 'isDoneFolded' } as const, 
 
 const BOARD_MAX = 400 // files one read of the board takes
 
+const LEDGER_MS = 2000 // the session's ledger is read at most this often
+const BOARD_WAIT_MS = 1500 // a burst of edits to the docs reads the board once
+const STATUS_KEEP_MS = 10 * 60_000 // the status line shows an ended run this long
+const LIST_EVERY = 20 // ticks between looks at the engine's list of agents
+
+// Module values are lost on a hot reload; session.start runs again then and
+// sets them, and none of them is drawn from.
 let cwd = ''
 let timer: { cancel: () => void } | null = null
 let opened = false
-let demoTicks = 0
+let ledgerAt = 0
+let boardWait: { cancel: () => void } | null = null
+let statusWait: { cancel: () => void } | null = null
 // Whether the terminal draws Claude Code's fullscreen layout: only there a
 // pane docks beside the talk and takes clicks. Learnt from any drawing.
 let isFullscreen: boolean | undefined
@@ -88,18 +100,40 @@ async function pulse($: EngineInterface) {
 
 async function beat($: EngineInterface) {
   const r = await read($, run)
+  const n = ((await read($, tick)) ?? 0) + 1 // kept in $.state: a reload goes on counting
+  const now = await $.clock.now()
   if (r?.isDemo) {
-    const n = ++demoTicks
-    const now = await $.clock.now()
     await update($, run, x => (x?.isDemo ? demoTick(x, n, now) : x))
+  } else if (r) {
+    // A bee killed with TaskStop gets no turn.complete: the engine's list
+    // says it ended; a run heard from by nothing for half an hour has.
+    if (n % LIST_EVERY === 0 && r.bees.some(b => b.status === 'running')) {
+      const agents = await $.agent.list().catch(() => [])
+      if (endListed(r, agents, now) !== r) await update($, run, x => (x && !x.isDemo ? endListed(x, agents, now) : x))
+    }
+    if (staleRun(r, now) !== r) await update($, run, x => (x && !x.isDemo ? staleRun(x, now) : x))
   }
-  await update($, tick, n => (n ?? 0) + 1)
+  await update($, tick, () => n)
   await pulse($)
+}
+
+async function getCwd($: EngineInterface) {
+  if (!cwd) cwd = await $.session.cwd().catch(() => '')
+  return cwd
+}
+
+// The run with the session's ledger, read at most every LEDGER_MS (always
+// when `force`): its cost and context window.
+async function ledger($: EngineInterface, force = false) {
+  const now = await $.clock.now()
+  if (!force && now - ledgerAt < LEDGER_MS) return
+  ledgerAt = now
+  const usage = await $.session.usage().catch(() => null)
+  if (usage) await update($, run, r => (r && !r.isDemo ? setLedger(r, usage.cost?.usd, usage.context.window) : r))
 }
 
 async function startDemo($: EngineInterface) {
   const now = await $.clock.now()
-  demoTicks = 0
   await update($, run, () => demoRun(now))
   await update($, boardAtom, () => demoBoard(now))
   await update($, viewAtom, () => 'hive')
@@ -109,15 +143,26 @@ async function startDemo($: EngineInterface) {
 async function endDemo($: EngineInterface) {
   await update($, run, r => (r?.isDemo ? null : r))
   await update($, boardAtom, b => (b?.docs === '(demo)' ? null : b))
+  await ensureBoard($)
   await pulse($)
+}
+
+// The board tab with nothing read shows "Reading the board…": read it.
+async function ensureBoard($: EngineInterface) {
+  if ((await read($, viewAtom)) === 'board' && !(await read($, boardAtom))) await loadBoard($)
 }
 
 async function status($: EngineInterface) {
     const r = await read($, run)
+    const now = await $.clock.now()
+    statusWait?.cancel()
+    statusWait = null
     if (!r || r.bees.length === 0) return $.ui.status(undefined)
+    // A run that ended long ago leaves the status line.
+    if (r.endedAt && now - r.endedAt >= STATUS_KEEP_MS) return $.ui.status(undefined)
+    if (r.endedAt) statusWait = $.clock.after(STATUS_KEEP_MS - (now - r.endedAt) + 100, () => void status($))
     const { running, finished } = sections(r)
     const { cost, isExact } = totals(r)
-    const now = await $.clock.now()
     const time = fmtTime((r.endedAt || now) - r.startedAt)
     const parts = [
       running.length ? `🐝 ${running.length} working` : '🐝 done',
@@ -165,8 +210,18 @@ async function loadBoard($: EngineInterface) {
   await update($, boardAtom, () => board)
 }
 
+// A burst of edits to the docs reads the board once, when it has settled.
+function loadBoardSoon($: EngineInterface) {
+  boardWait?.cancel()
+  boardWait = $.clock.after(BOARD_WAIT_MS, () => {
+    boardWait = null
+    void loadBoard($)
+  })
+}
+
 async function change($: EngineInterface, fn: (r: Run) => Run) {
-  await update($, run, r => (r ? fn(r) : r))
+  const now = await $.clock.now()
+  await update($, run, r => (r ? (r.isDemo ? fn(r) : touch(fn(r), now)) : r))
   await pulse($)
 }
 
@@ -175,6 +230,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     cwd = await $.session.cwd()
+    ledgerAt = 0
     await $.command.register({
       name: 'hive',
       description: 'Show the bees at work (ULU Hive); "demo" shows made-up data, "demo off" clears it',
@@ -185,6 +241,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'hive' }, async ($, e) => {
+    isFullscreen = e.presentation.isFullscreen
     const args = e.args.trim().toLowerCase()
     if (args === 'demo off' || args === 'off' || args === 'clear') {
       await endDemo($)
@@ -195,6 +252,7 @@ export const register: Register = (on, options) => {
       await openPane($, true)
       return { text: 'ULU Hive: a made-up run is playing. Switch tabs with 1, 2, 3; /hive demo off clears it.' }
     }
+    await ensureBoard($)
     await openPane($, true)
     return {
       text: e.presentation.isFullscreen
@@ -206,10 +264,12 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const now = await $.clock.now()
     const usd = (await $.session.usage()).cost?.usd
+    ledgerAt = now
+    await getCwd($)
     // /el-capitan starts the team: the hive opens with it.
     if (autoOpen && /^\/el-capitan\b/i.test(e.text.trim())) void openUnasked($)
     // The demo plays on while the person types; a real bee ends it.
-    await update($, run, r => (r?.isDemo ? r : setLedger(startRun(r, e.text, cwd, now), usd)))
+    await update($, run, r => (r?.isDemo ? r : touch(setLedger(startRun(r, e.text, cwd, now), usd), now)))
     await pulse($)
     return next(e)
   }).catch(($, e, next) => next(e)) // never stop what it watches
@@ -219,12 +279,13 @@ export const register: Register = (on, options) => {
     if (started.agentId) {
       const now = await $.clock.now()
       const id = started.agentId
+      await getCwd($)
       if ((await read($, run))?.isDemo) {
         await endDemo($)
         const usd = (await $.session.usage()).cost?.usd
         await update($, run, () => setLedger(startRun(null, e.description, cwd, now), usd))
       }
-      await change($, r => addBee(r, { id, role: e.subagentType, title: e.description, model: started.model }, now))
+      await change($, r => addBee(r, { id, role: e.subagentType, title: e.description, model: started.model }, now, cwd))
       if (autoOpen && !opened) {
         opened = true
         void openUnasked($)
@@ -246,10 +307,9 @@ export const register: Register = (on, options) => {
       if (chunk.kind === 'stop' && chunk.usage) {
         const usage = chunk.usage
         const effort = typeof e.effort === 'string' ? e.effort : ''
-        const ledger = await $.session.usage()
-        await update($, run, r =>
-          r ? setLedger(addUsage(r, e.agentId, usage, usage.model || e.model, effort), ledger.cost?.usd, ledger.context.window) : r,
-        )
+        const now = await $.clock.now()
+        await update($, run, r => (r ? touch(addUsage(r, e.agentId, usage, usage.model || e.model, effort), now) : r))
+        await ledger($) // a step ends often, in every bee: at most every LEDGER_MS
       }
       yield chunk
     }
@@ -261,9 +321,18 @@ export const register: Register = (on, options) => {
     await change($, r => sawTool(r, e.agentId, tool, input, cwd))
     const answer = await next(e)
     const file = typeof input.file_path === 'string' ? input.file_path : ''
-    if ((tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') && /(^|\/)(dev-)?docs\//.test(file)) {
-      if ((await read($, viewAtom)) === 'board') void loadBoard($)
+    if ((tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') && isDocsPath(file, cwd)) {
+      if ((await read($, boardAtom))?.docs === '(demo)') {
+        // the demo's board stays until the demo ends
+      } else if ((await read($, viewAtom)) === 'board') loadBoardSoon($)
       else await update($, boardAtom, () => null) // read again when the board shows
+    }
+    // A bee stopped from the main loop gets no turn.complete of its own.
+    const denied = 'deny' in answer && !!answer.deny
+    const target = String(input.task_id ?? input.shell_id ?? '')
+    if ((tool === 'TaskStop' || tool === 'KillShell') && target && !denied) {
+      const now = await $.clock.now()
+      await change($, r => endBee(r, target, 'aborted', now))
     }
     if (tool === 'TaskCreate' && !('deny' in answer && answer.deny)) {
       await change($, r => createdStep(r, e.agentId, input, answer, cwd))
@@ -275,6 +344,7 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     const id = e.agentId
     await change($, r => (id ? endBee(r, id, e.reason, now) : endMain(r, now)))
+    await ledger($, true)
     return next(e)
   })
 

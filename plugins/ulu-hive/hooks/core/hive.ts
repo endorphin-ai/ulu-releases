@@ -28,7 +28,10 @@ export const emptyRun = (title: string, now: number): Run => ({
 export function setLedger(run: Run, sessionUsd: number | undefined, window?: number): Run {
   if (window) run = { ...run, window }
   if (sessionUsd === undefined) return run
-  if (run.costBase < 0) return { ...run, costBase: sessionUsd, exactCost: 0 }
+  if (run.exactCost < 0) return { ...run, costBase: sessionUsd, exactCost: 0 }
+  // The session's total went down (/clear starts it over): what the run had
+  // cost stays, and it counts on from the new total.
+  if (sessionUsd < run.costBase) return { ...run, costBase: sessionUsd - Math.max(0, run.exactCost) }
   return { ...run, exactCost: Math.max(0, sessionUsd - run.costBase) }
 }
 
@@ -74,12 +77,13 @@ export function addBee(
   run: Run,
   a: { id: string; role: string; title: string; model: string },
   now: number,
+  cwd = '',
 ): Run {
   if (run.bees.some(b => b.id === a.id)) return run
   const bee: Bee = {
     id: a.id,
     role: a.role,
-    title: redact(a.title, '') || a.role,
+    title: redact(a.title, cwd) || a.role,
     bee: beeFor(`${a.role} ${a.title}`),
     model: a.model,
     effort: '',
@@ -138,6 +142,31 @@ export function endBee(run: Run, agentId: string, reason: string, now: number): 
     b.status === 'running' ? { ...b, status, endedAt: now, doing: '' } : b,
   )
   return settle(next, now)
+}
+
+// Something was heard from the run: a bee or El Capitan did something.
+export const touch = (run: Run, now: number): Run => (run.seenAt === now ? run : { ...run, seenAt: now })
+
+// Nothing heard for this long: what still says it works is taken as stopped
+// (a bee killed with TaskStop, a session that lost it), so the clock rests.
+export const STALE_MS = 30 * 60_000
+
+export function staleRun(run: Run, now: number): Run {
+  if (!isRunning(run) || now - (run.seenAt || run.startedAt) < STALE_MS) return run
+  const bees = run.bees.map(b => (b.status === 'running' ? { ...b, status: 'stopped' as const, endedAt: now, doing: '' } : b))
+  return settle({ ...run, bees, isMainBusy: false, doing: '' }, now)
+}
+
+// The engine's own list of agents: a bee it lists as ended has ended, even
+// when no turn.complete said so (killed by TaskStop).
+export function endListed(run: Run, agents: { id: string; status: string }[], now: number): Run {
+  const ended: Record<string, string> = { killed: 'aborted', failed: 'error', completed: 'answer' }
+  let next = run
+  for (const a of agents) {
+    const reason = ended[a.status]
+    if (reason && next.bees.some(b => b.id === a.id && b.status === 'running')) next = endBee(next, a.id, reason, now)
+  }
+  return next
 }
 
 // A tool call starts: it says what the bee (or El Capitan) does now.
@@ -200,21 +229,23 @@ export function createdStep(
   return setSteps(run, agentId, list => (list.some(s => s.id === id) ? list : [...list, step]))
 }
 
+// The id is near the top of a small record: the walk goes a few levels deep,
+// and reads the start of each text alone.
 export function taskIdOf(result: unknown): string {
   const seen = new Set<unknown>()
-  const walk = (v: unknown): string => {
-    if (v == null || seen.has(v)) return ''
-    if (typeof v === 'string') return /Task #(\d+) created/.exec(v)?.[1] ?? ''
+  const walk = (v: unknown, depth = 0): string => {
+    if (v == null || seen.has(v) || depth > 6) return ''
+    if (typeof v === 'string') return /Task #(\d+) created/.exec(v.slice(0, 2000))?.[1] ?? ''
     if (typeof v !== 'object') return ''
     seen.add(v)
     const o = v as Record<string, unknown>
     const task = o.task as Record<string, unknown> | undefined
     if (task && (typeof task.id === 'string' || typeof task.id === 'number')) return String(task.id)
     for (const k of ['text', 'result', 'content']) {
-      const got = walk(o[k])
+      const got = walk(o[k], depth + 1)
       if (got) return got
     }
-    if (Array.isArray(v)) for (const x of v) { const got = walk(x); if (got) return got }
+    if (Array.isArray(v)) for (const x of v.slice(0, 20)) { const got = walk(x, depth + 1); if (got) return got }
     return ''
   }
   return walk(result)
@@ -254,7 +285,7 @@ export function doingOf(tool: string, input: Record<string, unknown>, cwd: strin
     case 'Glob':
       return `Searching ${cut(redact(s('pattern'), cwd), 32)}`
     case 'WebFetch': {
-      const host = /^https?:\/\/([^/?#]+)/.exec(s('url'))?.[1]
+      const host = /^https?:\/\/(?:[^/?#@]*@)?([^/?#@]+)/.exec(s('url'))?.[1]
       return host ? `Reading ${host}` : 'Reading the web'
     }
     case 'WebSearch':

@@ -8,6 +8,17 @@ export type { Board, BoardItem, Column }
 
 export const DOCS_DIRS = ['dev-docs', 'docs']
 
+// A file in the project's own docs folder, not any docs/ (node_modules/x/docs/).
+export function isDocsPath(file: string, cwd: string): boolean {
+  if (!file) return false
+  let rel = file
+  if (file.startsWith('/')) {
+    if (!cwd || !file.startsWith(cwd + '/')) return false
+    rel = file.slice(cwd.length + 1)
+  }
+  return /^(\.\/)?(dev-)?docs\//.test(rel)
+}
+
 // Folder name → item type, as ULU's docs skill and common names write them.
 export const FOLDER_TYPES: Record<string, string> = {
   epics: 'epic', epic: 'epic', sprints: 'sprint', sprint: 'sprint',

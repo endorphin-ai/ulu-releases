@@ -9,6 +9,7 @@ import {
   createdStep,
   doingOf,
   endBee,
+  endListed,
   endMain,
   isRunning,
   runTitle,
@@ -16,10 +17,13 @@ import {
   sections,
   setLedger,
   shortModel,
+  staleRun,
   startRun,
   taskIdOf,
+  touch,
   totals,
   wakeBee,
+  STALE_MS,
 } from '../hooks/core/hive'
 import { redact } from '../hooks/core/redact'
 import { ROLE_COLOR, darken, ink } from '../hooks/core/draw'
@@ -303,4 +307,101 @@ test('on the main screen the tabs say their keys', async ($, on) => {
   const full = await $.ui.mount({ ...PANE, surface: 'terminal', viewport: { columns: 200, rows: 50, isFullscreen: true } })
   expect(await full.find({ type: 'Text', text: /keys 1 2 3/ })).toBeFalsy()
   await full.unmount()
+})
+
+test('a bee killed without turn.complete ends; a silent run rests', async () => {
+  const r = touch(aRun(), 20000)
+  // The engine lists a1 as killed: it is stopped, and the run (main still busy) goes on.
+  const listed = endListed(r, [{ id: 'a1', status: 'killed' }, { id: 'zz', status: 'killed' }], 30000)
+  expect(listed.bees.find(b => b.id === 'a1')!.status).toBe('stopped')
+  expect(endListed(r, [{ id: 'a1', status: 'running' }], 30000)).toBe(r)
+  // Half an hour with nothing heard: what still runs is stopped, and the run ends.
+  expect(staleRun(r, 20000 + STALE_MS - 1)).toBe(r)
+  const stale = staleRun(r, 20000 + STALE_MS)
+  expect(isRunning(stale)).toBe(false)
+  expect(stale.endedAt).toBe(20000 + STALE_MS)
+  // So the next prompt starts a run of its own, not one that never ends.
+  expect(startRun(stale, 'next', CWD, 1).bees.length).toBe(0)
+})
+
+test('the ledger counts on after /clear starts the session over', async () => {
+  let r = setLedger(startRun(null, 'x', CWD, 0), 10)
+  r = setLedger(r, 12)
+  expect(r.exactCost).toBe(2)
+  r = setLedger(r, 0.5) // /clear: the session's total starts again
+  expect(r.exactCost).toBe(2)
+  r = setLedger(r, 1.5)
+  expect(r.exactCost).toBe(3)
+})
+
+test('titles, hosts and URLs are shown without secrets', async () => {
+  const r = addBee(startRun(null, 'x', CWD, 0), { id: 'b', role: 'dev', title: `Fix ${CWD}/src/a.ts with sk-ant-abcdefghijklmnopqrstuv`, model: '' }, 0, CWD)
+  expect(r.bees[0]!.title).toBe('Fix src/a.ts with [hidden]')
+  expect(doingOf('WebFetch', { url: 'https://user:hunter2@example.com/x' }, CWD)).toBe('Reading example.com')
+  expect(doingOf('Bash', { command: 'psql postgres://admin:s3cr3tpw@db.example.com/app' }, CWD)).not.toContain('s3cr3tpw')
+  expect(redact('https://example.com:8080/x', CWD)).toBe('https://example.com:8080/x')
+})
+
+test('task ids are found without walking a whole result', async () => {
+  const big = { content: [...Array.from({ length: 5000 }, () => ({ text: 'x'.repeat(100) })), { text: 'Task #9 created' }] }
+  expect(taskIdOf(big)).toBe('')
+  expect(taskIdOf({ content: [{ text: 'Task #9 created' }] })).toBe('9')
+})
+
+import { isDocsPath } from '../hooks/core/board'
+
+test('only the project\'s own docs folder reads the board again', async () => {
+  expect(isDocsPath(`${CWD}/dev-docs/prd/a.md`, CWD)).toBe(true)
+  expect(isDocsPath(`${CWD}/docs/bugs/b.md`, CWD)).toBe(true)
+  expect(isDocsPath(`${CWD}/node_modules/x/docs/a.md`, CWD)).toBe(false)
+  expect(isDocsPath('/elsewhere/docs/a.md', CWD)).toBe(false)
+  expect(isDocsPath(`${CWD}/src/docs.ts`, CWD)).toBe(false)
+})
+
+test('/hive demo off on the board tab reads the real board', async ($, on) => {
+  on('clock.now', () => ({ value: 100_000 }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('command.register', () => ({ value: { command: 'hive' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/p' }))
+  on('ui.status', () => ({ value: undefined }))
+  fakeDisk(on)
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'hive', args: 'demo', ...TYPED })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-board' })
+  await ui.unmount()
+  await $.command.run({ command: 'hive', args: 'demo off', ...TYPED })
+  const ui2 = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui2.find({ type: 'Text', text: /Reading the board/ })).toBeFalsy()
+  expect(await ui2.find({ type: 'Text', text: /In progress · 1/ })).toBeTruthy()
+  await ui2.unmount()
+})
+
+test('the status line leaves a run that ended long ago', async ($, on) => {
+  let now = 100_000
+  const statuses: (string | undefined)[] = []
+  on('clock.now', () => ({ value: now }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('command.register', () => ({ value: { command: 'hive' } }))
+  on('session.cwd', () => ({ value: '/p' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [], cost: { usd: 1 } } }))
+  on('ui.status', (_$, e) => { statuses.push((e as { text?: string }).text); return { value: undefined } })
+  on('prompt.submit', (_$, e) => ({ text: (e as { text: string }).text }) as never)
+  on('agent.spawn', () => ({ agentId: 'b1', model: 'claude-opus-5-5' }) as never)
+  on('turn.complete', (_$, e) => ({ text: (e as { answer: string }).answer }))
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('clock.every', () => ({ value: undefined }) as never)
+  on('clock.after', () => ({ value: undefined }) as never)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true })
+  await $.prompt.submit({ text: '/el-capitan go' } as never)
+  await $.agent.spawn({ prompt: 'p', description: 'Build it', subagentType: 'go-dev' } as never)
+  const done = { answer: 'ok', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as const
+  await $.turn.complete({ ...done, agentId: 'b1' })
+  await $.turn.complete(done)
+  expect(statuses.at(-1)).toMatch(/🐝 done/)
+  now += 11 * 60_000
+  await $.session.start({ cwd: '/p', surface: 'terminal', isInteractive: true }) // a reload looks again
+  expect(statuses.at(-1)).toBeUndefined()
 })
